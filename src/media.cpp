@@ -1,4 +1,3 @@
-#include <driver/i2s.h>
 #include <opus.h>
 
 #include "main.h"
@@ -7,75 +6,23 @@
 #define SAMPLE_RATE 8000
 #define BUFFER_SAMPLES 320
 
-#define MCLK_PIN 0
-#define DAC_BCLK_PIN 15
-#define DAC_LRCLK_PIN 16
-#define DAC_DATA_PIN 17
-#define ADC_BCLK_PIN 38
-#define ADC_LRCLK_PIN 39
-#define ADC_DATA_PIN 40
-
 #define OPUS_ENCODER_BITRATE 30000
 #define OPUS_ENCODER_COMPLEXITY 0
 
+#include <mutex>
+
+#include <esp_log.h>
+#include <M5Unified.h>
+
+static constexpr char* TAG = "media";
+
+static std::mutex s_audio_mutex;
+
 void oai_init_audio_capture() {
-  i2s_config_t i2s_config_out = {
-      .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX),
-      .sample_rate = SAMPLE_RATE,
-      .bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT,
-      .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,
-      .communication_format = I2S_COMM_FORMAT_I2S_MSB,
-      .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
-      .dma_buf_count = 8,
-      .dma_buf_len = BUFFER_SAMPLES,
-      .use_apll = 1,
-      .tx_desc_auto_clear = true,
-  };
-  if (i2s_driver_install(I2S_NUM_0, &i2s_config_out, 0, NULL) != ESP_OK) {
-    printf("Failed to configure I2S driver for audio output");
-    return;
-  }
-
-  i2s_pin_config_t pin_config_out = {
-      .mck_io_num = MCLK_PIN,
-      .bck_io_num = DAC_BCLK_PIN,
-      .ws_io_num = DAC_LRCLK_PIN,
-      .data_out_num = DAC_DATA_PIN,
-      .data_in_num = I2S_PIN_NO_CHANGE,
-  };
-  if (i2s_set_pin(I2S_NUM_0, &pin_config_out) != ESP_OK) {
-    printf("Failed to set I2S pins for audio output");
-    return;
-  }
-  i2s_zero_dma_buffer(I2S_NUM_0);
-
-  i2s_config_t i2s_config_in = {
-      .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX),
-      .sample_rate = SAMPLE_RATE,
-      .bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT,
-      .channel_format = I2S_CHANNEL_FMT_ONLY_LEFT,
-      .communication_format = I2S_COMM_FORMAT_I2S_MSB,
-      .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
-      .dma_buf_count = 8,
-      .dma_buf_len = BUFFER_SAMPLES,
-      .use_apll = 1,
-  };
-  if (i2s_driver_install(I2S_NUM_1, &i2s_config_in, 0, NULL) != ESP_OK) {
-    printf("Failed to configure I2S driver for audio input");
-    return;
-  }
-
-  i2s_pin_config_t pin_config_in = {
-      .mck_io_num = MCLK_PIN,
-      .bck_io_num = ADC_BCLK_PIN,
-      .ws_io_num = ADC_LRCLK_PIN,
-      .data_out_num = I2S_PIN_NO_CHANGE,
-      .data_in_num = ADC_DATA_PIN,
-  };
-  if (i2s_set_pin(I2S_NUM_1, &pin_config_in) != ESP_OK) {
-    printf("Failed to set I2S pins for audio input");
-    return;
-  }
+  M5.Speaker.setVolume(255);
+  M5.Speaker.end();
+  M5.Mic.begin();
+  ESP_LOGE(TAG, "audio initialized");
 }
 
 opus_int16 *output_buffer = NULL;
@@ -97,9 +44,14 @@ void oai_audio_decode(uint8_t *data, size_t size) {
       opus_decode(opus_decoder, data, size, output_buffer, BUFFER_SAMPLES, 0);
 
   if (decoded_size > 0) {
-    size_t bytes_written = 0;
-    i2s_write(I2S_NUM_0, output_buffer, BUFFER_SAMPLES * sizeof(opus_int16),
-              &bytes_written, portMAX_DELAY);
+    ESP_LOGE(TAG, "audio decode");
+    std::lock_guard<std::mutex> lock(s_audio_mutex);
+    M5.Mic.end();
+    M5.Speaker.begin();
+    M5.Speaker.playRaw(output_buffer, BUFFER_SAMPLES, SAMPLE_RATE, false);
+    while (M5.Speaker.isPlaying()) { M5.delay(1); } // Wait for the output to finish.
+    M5.Speaker.end();
+    M5.Mic.begin();
   }
 }
 
@@ -132,9 +84,13 @@ void oai_init_audio_encoder() {
 void oai_send_audio(PeerConnection *peer_connection) {
   size_t bytes_read = 0;
 
-  i2s_read(I2S_NUM_1, encoder_input_buffer, BUFFER_SAMPLES, &bytes_read,
-           portMAX_DELAY);
-
+  ESP_LOGE(TAG, "audio send");
+  {
+    std::lock_guard<std::mutex> lock(s_audio_mutex);
+    M5.Mic.record(encoder_input_buffer, BUFFER_SAMPLES);
+    while (M5.Mic.isRecording()) { M5.delay(1); };
+  }
+  
   auto encoded_size =
       opus_encode(opus_encoder, encoder_input_buffer, BUFFER_SAMPLES / 2,
                   encoder_output_buffer, OPUS_OUT_BUFFER_SIZE);
