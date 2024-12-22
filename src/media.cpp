@@ -7,6 +7,8 @@
 #include <M5Unified.h>
 
 #include <cstdint>
+#include <vector>
+#include <sys/socket.h>
 
 #define OPUS_OUT_BUFFER_SIZE 1276  // 1276 bytes is recommended by opus_encode
 #define SAMPLE_RATE 8000
@@ -23,6 +25,14 @@
 
 constexpr const char *TAG = "media";
 
+// UDP socket for audio data debugging
+#ifdef CONFIG_MEDIA_ENABLE_DEBUG_AUDIO_UDP_CLIENT
+static struct sockaddr_in s_debug_audio_in_dest_addr;
+static struct sockaddr_in s_debug_audio_out_dest_addr;
+static ssize_t s_debug_audio_sock;
+#endif // CONFIG_MEDIA_ENABLE_DEBUG_AUDIO_UDP_CLIENT
+
+// Initialization of AW88298 and ES7210 from M5Unified implementation.
 constexpr std::uint8_t aw88298_i2c_addr = 0x36;
 constexpr std::uint8_t es7210_i2c_addr = 0x40;
 constexpr std::uint8_t aw9523_i2c_addr = 0x58;
@@ -107,6 +117,22 @@ void oai_init_audio_capture() {
   ESP_LOGI(TAG, "Initializing speaker");
   initialize_speaker_cores3();
 
+#ifdef CONFIG_MEDIA_ENABLE_DEBUG_AUDIO_UDP_CLIENT
+  // Initialize UDP socket for debug.
+  s_debug_audio_sock = socket(AF_INET, SOCK_DGRAM, 0);
+  if (s_debug_audio_sock < 0) {
+    ESP_LOGE(TAG, "Failed to create socket");
+    return;
+  }
+  
+  s_debug_audio_in_dest_addr.sin_addr.s_addr = inet_addr(CONFIG_MEDIA_DEBUG_AUDIO_HOST);
+  s_debug_audio_in_dest_addr.sin_family = AF_INET;
+  s_debug_audio_in_dest_addr.sin_port = htons(CONFIG_MEDIA_DEBUG_AUDIO_IN_PORT);
+  s_debug_audio_out_dest_addr.sin_addr.s_addr = inet_addr(CONFIG_MEDIA_DEBUG_AUDIO_HOST);
+  s_debug_audio_out_dest_addr.sin_family = AF_INET;
+  s_debug_audio_out_dest_addr.sin_port = htons(CONFIG_MEDIA_DEBUG_AUDIO_OUT_PORT);
+#endif // CONFIG_MEDIA_ENABLE_DEBUG_AUDIO_UDP_CLIENT
+
   ESP_LOGI(TAG, "Initializing I2S for audio input/output");
   i2s_config_t i2s_config = {
       .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX | I2S_MODE_RX),
@@ -115,7 +141,7 @@ void oai_init_audio_capture() {
       .channel_format = I2S_CHANNEL_FMT_ONLY_LEFT,
       .communication_format = I2S_COMM_FORMAT_I2S,
       .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
-      .dma_buf_count = 8,
+      .dma_buf_count = 16,
       .dma_buf_len = BUFFER_SAMPLES,
       .use_apll = 1,
       .tx_desc_auto_clear = true,
@@ -158,10 +184,12 @@ void oai_audio_decode(uint8_t *data, size_t size) {
       opus_decode(opus_decoder, data, size, output_buffer, BUFFER_SAMPLES, 0);
 
   if (decoded_size > 0) {
-    //ESP_LOGI(TAG, "decoded %d samples", decoded_size);
-    size_t bytes_written = 0;
-    i2s_write(I2S_NUM_0, output_buffer, BUFFER_SAMPLES * sizeof(opus_int16),
+    std::size_t bytes_written = 0;
+    i2s_write(I2S_NUM_0, output_buffer, decoded_size * sizeof(opus_int16),
               &bytes_written, portMAX_DELAY);
+#ifdef CONFIG_MEDIA_ENABLE_DEBUG_AUDIO_UDP_CLIENT
+    sendto(s_debug_audio_sock, output_buffer, decoded_size * sizeof(opus_int16), 0, (struct sockaddr *)&s_debug_audio_out_dest_addr, sizeof(s_debug_audio_out_dest_addr));
+#endif // CONFIG_MEDIA_ENABLE_DEBUG_AUDIO_UDP_CLIENT
   }
 }
 
@@ -187,18 +215,22 @@ void oai_init_audio_encoder() {
   opus_encoder_ctl(opus_encoder, OPUS_SET_BITRATE(OPUS_ENCODER_BITRATE));
   opus_encoder_ctl(opus_encoder, OPUS_SET_COMPLEXITY(OPUS_ENCODER_COMPLEXITY));
   opus_encoder_ctl(opus_encoder, OPUS_SET_SIGNAL(OPUS_SIGNAL_VOICE));
-  encoder_input_buffer = (opus_int16 *)malloc(BUFFER_SAMPLES);
+  encoder_input_buffer = (opus_int16 *)malloc(BUFFER_SAMPLES*sizeof(opus_int16));
   encoder_output_buffer = (uint8_t *)malloc(OPUS_OUT_BUFFER_SIZE);
 }
 
 void oai_send_audio(PeerConnection *peer_connection) {
   size_t bytes_read = 0;
 
-  i2s_read(I2S_NUM_0, encoder_input_buffer, BUFFER_SAMPLES, &bytes_read,
+  i2s_read(I2S_NUM_0, encoder_input_buffer, BUFFER_SAMPLES*sizeof(opus_int16), &bytes_read,
            portMAX_DELAY);
 
+#ifdef CONFIG_MEDIA_ENABLE_DEBUG_AUDIO_UDP_CLIENT
+  sendto(s_debug_audio_sock, encoder_input_buffer, BUFFER_SAMPLES*sizeof(opus_int16), 0, (struct sockaddr *)&s_debug_audio_in_dest_addr, sizeof(s_debug_audio_in_dest_addr));
+#endif // CONFIG_MEDIA_ENABLE_DEBUG_AUDIO_UDP_CLIENT
+
   auto encoded_size =
-      opus_encode(opus_encoder, encoder_input_buffer, BUFFER_SAMPLES / 2,
+      opus_encode(opus_encoder, encoder_input_buffer, BUFFER_SAMPLES,
                   encoder_output_buffer, OPUS_OUT_BUFFER_SIZE);
 
   peer_connection_send_audio(peer_connection, encoder_output_buffer,
