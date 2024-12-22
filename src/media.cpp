@@ -1,28 +1,142 @@
+#include <driver/i2s.h>
 #include <opus.h>
 
 #include "main.h"
+
+#include <esp_log.h>
+#include <M5Unified.h>
+
+#include <cstdint>
 
 #define OPUS_OUT_BUFFER_SIZE 1276  // 1276 bytes is recommended by opus_encode
 #define SAMPLE_RATE 8000
 #define BUFFER_SAMPLES 320
 
+#define MCLK_PIN 0
+#define BCLK_PIN 34
+#define LRCLK_PIN 33
+#define DATA_IN_PIN 14
+#define DATA_OUT_PIN 13
+
 #define OPUS_ENCODER_BITRATE 30000
 #define OPUS_ENCODER_COMPLEXITY 0
 
-#include <mutex>
+constexpr const char *TAG = "media";
 
-#include <esp_log.h>
-#include <M5Unified.h>
+constexpr std::uint8_t aw88298_i2c_addr = 0x36;
+constexpr std::uint8_t es7210_i2c_addr = 0x40;
+constexpr std::uint8_t aw9523_i2c_addr = 0x58;
+static void aw88298_write_reg(std::uint8_t reg, std::uint16_t value)
+{
+  value = __builtin_bswap16(value);
+  M5.In_I2C.writeRegister(aw88298_i2c_addr, reg, (const std::uint8_t*)&value, 2, 400000);
+}
 
-static constexpr char* TAG = "media";
+static void es7210_write_reg(std::uint8_t reg, std::uint8_t value)
+{
+  M5.In_I2C.writeRegister(es7210_i2c_addr, reg, &value, 1, 400000);
+}
 
-static std::mutex s_audio_mutex;
+static void initialize_speaker_cores3()
+{
+  M5.In_I2C.bitOn(aw9523_i2c_addr, 0x02, 0b00000100, 400000);
+  /// サンプリングレートに応じてAW88298のレジスタの設定値を変える;
+  static constexpr uint8_t rate_tbl[] = {4,5,6,8,10,11,15,20,22,44};
+  size_t reg0x06_value = 0;
+  size_t rate = (SAMPLE_RATE + 1102) / 2205;
+  while (rate > rate_tbl[reg0x06_value] && ++reg0x06_value < sizeof(rate_tbl)) {}
+
+  reg0x06_value |= 0x14C0;  // I2SBCK=0 (BCK mode 16*2)
+  aw88298_write_reg( 0x61, 0x0673 );  // boost mode disabled 
+  aw88298_write_reg( 0x04, 0x4040 );  // I2SEN=1 AMPPD=0 PWDN=0
+  aw88298_write_reg( 0x05, 0x0008 );  // RMSE=0 HAGCE=0 HDCCE=0 HMUTE=0
+  aw88298_write_reg( 0x06, reg0x06_value );
+  aw88298_write_reg( 0x0C, 0x0064 );  // volume setting (full volume)
+}
+
+static void initialize_microphone_cores3()
+{
+  es7210_write_reg(0x00, 0xFF); // RESET_CTL
+  struct __attribute__((packed)) reg_data_t
+  {
+    uint8_t reg;
+    uint8_t value;
+  };
+  
+  static constexpr reg_data_t data[] =
+  {
+    { 0x00, 0x41 }, // RESET_CTL
+    { 0x01, 0x1f }, // CLK_ON_OFF
+    { 0x06, 0x00 }, // DIGITAL_PDN
+    { 0x07, 0x20 }, // ADC_OSR
+    { 0x08, 0x10 }, // MODE_CFG
+    { 0x09, 0x30 }, // TCT0_CHPINI
+    { 0x0A, 0x30 }, // TCT1_CHPINI
+    { 0x20, 0x0a }, // ADC34_HPF2
+    { 0x21, 0x2a }, // ADC34_HPF1
+    { 0x22, 0x0a }, // ADC12_HPF2
+    { 0x23, 0x2a }, // ADC12_HPF1
+    { 0x02, 0xC1 },
+    { 0x04, 0x01 },
+    { 0x05, 0x00 },
+    { 0x11, 0x60 },
+    { 0x40, 0x42 }, // ANALOG_SYS
+    { 0x41, 0x70 }, // MICBIAS12
+    { 0x42, 0x70 }, // MICBIAS34
+    { 0x43, 0x1B }, // MIC1_GAIN
+    { 0x44, 0x1B }, // MIC2_GAIN
+    { 0x45, 0x00 }, // MIC3_GAIN
+    { 0x46, 0x00 }, // MIC4_GAIN
+    { 0x47, 0x00 }, // MIC1_LP
+    { 0x48, 0x00 }, // MIC2_LP
+    { 0x49, 0x00 }, // MIC3_LP
+    { 0x4A, 0x00 }, // MIC4_LP
+    { 0x4B, 0x00 }, // MIC12_PDN
+    { 0x4C, 0xFF }, // MIC34_PDN
+    { 0x01, 0x14 }, // CLK_ON_OFF
+  };
+  for (auto& d: data)
+  {
+    es7210_write_reg(d.reg, d.value);
+  }
+}
 
 void oai_init_audio_capture() {
-  M5.Speaker.setVolume(255);
-  M5.Speaker.end();
-  M5.Mic.begin();
-  ESP_LOGE(TAG, "audio initialized");
+  ESP_LOGI(TAG, "Initializing microphone");
+  initialize_microphone_cores3();
+  ESP_LOGI(TAG, "Initializing speaker");
+  initialize_speaker_cores3();
+
+  ESP_LOGI(TAG, "Initializing I2S for audio input/output");
+  i2s_config_t i2s_config = {
+      .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX | I2S_MODE_RX),
+      .sample_rate = SAMPLE_RATE,
+      .bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT,
+      .channel_format = I2S_CHANNEL_FMT_ONLY_LEFT,
+      .communication_format = I2S_COMM_FORMAT_I2S,
+      .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
+      .dma_buf_count = 8,
+      .dma_buf_len = BUFFER_SAMPLES,
+      .use_apll = 1,
+      .tx_desc_auto_clear = true,
+  };
+  if (i2s_driver_install(I2S_NUM_0, &i2s_config, 0, NULL) != ESP_OK) {
+    printf("Failed to configure I2S driver for audio input/output");
+    return;
+  }
+
+  i2s_pin_config_t pin_config = {
+      .mck_io_num = MCLK_PIN,
+      .bck_io_num = BCLK_PIN,
+      .ws_io_num = LRCLK_PIN,
+      .data_out_num = DATA_OUT_PIN,
+      .data_in_num = DATA_IN_PIN,
+  };
+  if (i2s_set_pin(I2S_NUM_0, &pin_config) != ESP_OK) {
+    printf("Failed to set I2S pins for audio input/output");
+    return;
+  }
+  i2s_zero_dma_buffer(I2S_NUM_0);
 }
 
 opus_int16 *output_buffer = NULL;
@@ -44,14 +158,10 @@ void oai_audio_decode(uint8_t *data, size_t size) {
       opus_decode(opus_decoder, data, size, output_buffer, BUFFER_SAMPLES, 0);
 
   if (decoded_size > 0) {
-    ESP_LOGE(TAG, "audio decode");
-    std::lock_guard<std::mutex> lock(s_audio_mutex);
-    M5.Mic.end();
-    M5.Speaker.begin();
-    M5.Speaker.playRaw(output_buffer, BUFFER_SAMPLES, SAMPLE_RATE, false);
-    while (M5.Speaker.isPlaying()) { M5.delay(1); } // Wait for the output to finish.
-    M5.Speaker.end();
-    M5.Mic.begin();
+    //ESP_LOGI(TAG, "decoded %d samples", decoded_size);
+    size_t bytes_written = 0;
+    i2s_write(I2S_NUM_0, output_buffer, BUFFER_SAMPLES * sizeof(opus_int16),
+              &bytes_written, portMAX_DELAY);
   }
 }
 
@@ -84,13 +194,9 @@ void oai_init_audio_encoder() {
 void oai_send_audio(PeerConnection *peer_connection) {
   size_t bytes_read = 0;
 
-  ESP_LOGE(TAG, "audio send");
-  {
-    std::lock_guard<std::mutex> lock(s_audio_mutex);
-    M5.Mic.record(encoder_input_buffer, BUFFER_SAMPLES);
-    while (M5.Mic.isRecording()) { M5.delay(1); };
-  }
-  
+  i2s_read(I2S_NUM_0, encoder_input_buffer, BUFFER_SAMPLES, &bytes_read,
+           portMAX_DELAY);
+
   auto encoded_size =
       opus_encode(opus_encoder, encoder_input_buffer, BUFFER_SAMPLES / 2,
                   encoder_output_buffer, OPUS_OUT_BUFFER_SIZE);

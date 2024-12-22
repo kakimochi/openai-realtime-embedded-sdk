@@ -19,6 +19,8 @@ extern "C" void app_main(void) {
   ESP_ERROR_CHECK(ret);
 
   auto cfg = M5.config();
+  cfg.internal_spk = false;
+  cfg.internal_mic = false;
   M5.begin(cfg);
 
   ESP_ERROR_CHECK(esp_event_loop_create_default());
