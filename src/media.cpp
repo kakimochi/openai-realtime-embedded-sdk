@@ -50,17 +50,11 @@ static void es7210_write_reg(std::uint8_t reg, std::uint8_t value)
 static void initialize_speaker_cores3()
 {
   M5.In_I2C.bitOn(aw9523_i2c_addr, 0x02, 0b00000100, 400000);
-  /// サンプリングレートに応じてAW88298のレジスタの設定値を変える;
-  static constexpr uint8_t rate_tbl[] = {4,5,6,8,10,11,15,20,22,44};
-  size_t reg0x06_value = 0;
-  size_t rate = (SAMPLE_RATE + 1102) / 2205;
-  while (rate > rate_tbl[reg0x06_value] && ++reg0x06_value < sizeof(rate_tbl)) {}
 
-  reg0x06_value |= 0x14C0;  // I2SBCK=0 (BCK mode 16*2)
   aw88298_write_reg( 0x61, 0x0673 );  // boost mode disabled 
   aw88298_write_reg( 0x04, 0x4040 );  // I2SEN=1 AMPPD=0 PWDN=0
   aw88298_write_reg( 0x05, 0x0008 );  // RMSE=0 HAGCE=0 HDCCE=0 HMUTE=0
-  aw88298_write_reg( 0x06, reg0x06_value );
+  aw88298_write_reg( 0x06, 0x14C0 );  // INPLEV=0 (not attenuated), I2SRXEN=1 (enable), CHSEL=01 (left), I2SMD=00 (Philips Standard I2S), I2SFS=00 (16bit), I2SBCK=00 (32*fs), I2SSR=0000 (8kHz)
   aw88298_write_reg( 0x0C, 0x0064 );  // volume setting (full volume)
 }
 
@@ -170,7 +164,7 @@ OpusDecoder *opus_decoder = NULL;
 
 void oai_init_audio_decoder() {
   int decoder_error = 0;
-  opus_decoder = opus_decoder_create(SAMPLE_RATE, 2, &decoder_error);
+  opus_decoder = opus_decoder_create(SAMPLE_RATE, 1, &decoder_error);
   if (decoder_error != OPUS_OK) {
     ESP_LOGE(TAG, "Failed to create OPUS decoder");
     return;
