@@ -141,13 +141,13 @@ void oai_init_audio_capture() {
       .channel_format = I2S_CHANNEL_FMT_ONLY_LEFT,
       .communication_format = I2S_COMM_FORMAT_I2S,
       .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
-      .dma_buf_count = 16,
+      .dma_buf_count = 8,
       .dma_buf_len = BUFFER_SAMPLES,
       .use_apll = 1,
       .tx_desc_auto_clear = true,
   };
   if (i2s_driver_install(I2S_NUM_0, &i2s_config, 0, NULL) != ESP_OK) {
-    printf("Failed to configure I2S driver for audio input/output");
+    ESP_LOGE(TAG, "Failed to configure I2S driver for audio input/output");
     return;
   }
 
@@ -159,7 +159,7 @@ void oai_init_audio_capture() {
       .data_in_num = DATA_IN_PIN,
   };
   if (i2s_set_pin(I2S_NUM_0, &pin_config) != ESP_OK) {
-    printf("Failed to set I2S pins for audio input/output");
+    ESP_LOGE(TAG, "Failed to set I2S pins for audio input/output");
     return;
   }
   i2s_zero_dma_buffer(I2S_NUM_0);
@@ -172,7 +172,7 @@ void oai_init_audio_decoder() {
   int decoder_error = 0;
   opus_decoder = opus_decoder_create(SAMPLE_RATE, 2, &decoder_error);
   if (decoder_error != OPUS_OK) {
-    printf("Failed to create OPUS decoder");
+    ESP_LOGE(TAG, "Failed to create OPUS decoder");
     return;
   }
 
@@ -185,8 +185,10 @@ void oai_audio_decode(uint8_t *data, size_t size) {
 
   if (decoded_size > 0) {
     std::size_t bytes_written = 0;
-    i2s_write(I2S_NUM_0, output_buffer, decoded_size * sizeof(opus_int16),
-              &bytes_written, portMAX_DELAY);
+    if( esp_err_t err = i2s_write(I2S_NUM_0, output_buffer, decoded_size * sizeof(opus_int16),
+              &bytes_written, portMAX_DELAY); err != ESP_OK ) {
+      ESP_LOGE(TAG, "Failed to write audio data to I2S: %s", esp_err_to_name(err));
+    }
 #ifdef CONFIG_MEDIA_ENABLE_DEBUG_AUDIO_UDP_CLIENT
     sendto(s_debug_audio_sock, output_buffer, decoded_size * sizeof(opus_int16), 0, (struct sockaddr *)&s_debug_audio_out_dest_addr, sizeof(s_debug_audio_out_dest_addr));
 #endif // CONFIG_MEDIA_ENABLE_DEBUG_AUDIO_UDP_CLIENT
@@ -202,13 +204,13 @@ void oai_init_audio_encoder() {
   opus_encoder = opus_encoder_create(SAMPLE_RATE, 1, OPUS_APPLICATION_VOIP,
                                      &encoder_error);
   if (encoder_error != OPUS_OK) {
-    printf("Failed to create OPUS encoder");
+    ESP_LOGE(TAG, "Failed to create OPUS encoder");
     return;
   }
 
   if (opus_encoder_init(opus_encoder, SAMPLE_RATE, 1, OPUS_APPLICATION_VOIP) !=
       OPUS_OK) {
-    printf("Failed to initialize OPUS encoder");
+    ESP_LOGE(TAG, "Failed to initialize OPUS encoder");
     return;
   }
 
@@ -221,9 +223,10 @@ void oai_init_audio_encoder() {
 
 void oai_send_audio(PeerConnection *peer_connection) {
   size_t bytes_read = 0;
-
-  i2s_read(I2S_NUM_0, encoder_input_buffer, BUFFER_SAMPLES*sizeof(opus_int16), &bytes_read,
-           portMAX_DELAY);
+  if( esp_err_t err = i2s_read(I2S_NUM_0, encoder_input_buffer, BUFFER_SAMPLES*sizeof(opus_int16), &bytes_read,
+           portMAX_DELAY) ; err != ESP_OK ) {
+    ESP_LOGE(TAG, "Failed to read audio data from I2S: %s", esp_err_to_name(err));
+  }
 
 #ifdef CONFIG_MEDIA_ENABLE_DEBUG_AUDIO_UDP_CLIENT
   sendto(s_debug_audio_sock, encoder_input_buffer, BUFFER_SAMPLES*sizeof(opus_int16), 0, (struct sockaddr *)&s_debug_audio_in_dest_addr, sizeof(s_debug_audio_in_dest_addr));

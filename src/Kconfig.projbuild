@@ -23,4 +23,16 @@ menu "Embedded SDK Configuration"
         depends on MEDIA_ENABLE_DEBUG_AUDIO_UDP_CLIENT
         help
             The port to send the audio from speaker to for debugging.
+    config ENABLE_HEAP_MONITOR
+        bool "Enable Heap Monitor"
+        default n
+        help
+            If this option is set (not default), 
+            the heap monitor will be enabled.
+    config HEAP_MONITOR_INTERVAL_MS
+        int "Heap Monitor Interval (ms)"
+        default 1000
+        depends on ENABLE_HEAP_MONITOR
+        help
+            The interval in milliseconds to print the heap monitor.
 endmenu
