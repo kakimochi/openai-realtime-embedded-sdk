@@ -1,0 +1,38 @@
+menu "Embedded SDK Configuration"
+    config MEDIA_ENABLE_DEBUG_AUDIO_UDP_CLIENT
+        bool "Enable Debug Audio UDP Client"
+        default n
+        help
+            if this option is set (not default), 
+            the input/output audio will be sent to the specified host.
+    config MEDIA_DEBUG_AUDIO_HOST
+        string "Debug Audio Host"
+        default "192.168.100.1"
+        depends on MEDIA_ENABLE_DEBUG_AUDIO_UDP_CLIENT
+        help
+            The host to send the audio to for debugging.
+    config MEDIA_DEBUG_AUDIO_IN_PORT
+        int "UDP port to send microphone input audio data to"
+        default 10000
+        depends on MEDIA_ENABLE_DEBUG_AUDIO_UDP_CLIENT
+        help
+            The port to send the audio from microphone to for debugging.
+    config MEDIA_DEBUG_AUDIO_OUT_PORT
+        int "UDP port to send speaker output audio data to"
+        default 10001
+        depends on MEDIA_ENABLE_DEBUG_AUDIO_UDP_CLIENT
+        help
+            The port to send the audio from speaker to for debugging.
+    config ENABLE_HEAP_MONITOR
+        bool "Enable Heap Monitor"
+        default n
+        help
+            If this option is set (not default), 
+            the heap monitor will be enabled.
+    config HEAP_MONITOR_INTERVAL_MS
+        int "Heap Monitor Interval (ms)"
+        default 1000
+        depends on ENABLE_HEAP_MONITOR
+        help
+            The interval in milliseconds to print the heap monitor.
+endmenu

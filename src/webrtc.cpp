@@ -40,7 +40,7 @@ static void oai_onconnectionstatechange_task(PeerConnectionState state,
 #if CONFIG_SPIRAM
     constexpr size_t stack_size = 20000;
     StackType_t *stack_memory = (StackType_t *)heap_caps_malloc(
-        20000 * sizeof(StackType_t), MALLOC_CAP_SPIRAM);
+        stack_size * sizeof(StackType_t), MALLOC_CAP_SPIRAM);
 #else // CONFIG_SPIRAM
     constexpr size_t stack_size = 20000;
     StackType_t *stack_memory = (StackType_t *)malloc(stack_size * sizeof(StackType_t));
