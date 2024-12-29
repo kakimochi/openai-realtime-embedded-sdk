@@ -1,6 +1,6 @@
 #include <esp_http_client.h>
 #include <esp_log.h>
-#include <string.h>
+#include <string>
 
 #include "main.h"
 
@@ -72,8 +72,10 @@ esp_err_t oai_http_event_handler(esp_http_client_event_t *evt) {
 void oai_http_request(char *offer, char *answer) {
   esp_http_client_config_t config;
   memset(&config, 0, sizeof(esp_http_client_config_t));
-
-  config.url = OPENAI_REALTIMEAPI;
+  std::string url = std::string(OPENAI_REALTIMEAPI)
+     + "&voice=sage" 
+     + "&instructions=please%20talk%20in%20japanese";
+  config.url = url.c_str();
   config.event_handler = oai_http_event_handler;
   config.user_data = answer;
 
