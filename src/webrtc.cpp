@@ -12,6 +12,7 @@
 #define TICK_INTERVAL 15
 
 PeerConnection *peer_connection = NULL;
+static bool _enable_webrtc = false;
 
 #ifndef LINUX_BUILD
 StaticTask_t task_buffer;
@@ -77,6 +78,8 @@ void oai_init_webrtc() {
       .user_data = NULL,
   };
 
+  _enable_webrtc = false;
+
   peer_connection = peer_connection_create(&peer_connection_config);
   if (peer_connection == NULL) {
     ESP_LOGE(LOG_TAG, "Failed to create peer connection");
@@ -91,6 +94,9 @@ void oai_init_webrtc() {
   peer_connection_create_offer(peer_connection);
 }
 
-void oai_webrtc_update() {
-  peer_connection_loop(peer_connection);
+void oai_webrtc_update(bool enable) {
+  _enable_webrtc = enable;
+  if(_enable_webrtc) {
+    peer_connection_loop(peer_connection);
+  }
 }

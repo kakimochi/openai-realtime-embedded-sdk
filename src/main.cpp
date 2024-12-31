@@ -14,6 +14,17 @@
 
 constexpr const char* TAG = "main";
 
+// Button Area on Touch Screen
+constexpr const int BtnA_X_Min = 20;
+constexpr const int BtnA_X_Max = 90;
+constexpr const int BtnA_Y_Min = 200;
+constexpr const int BtnB_X_Min = 120;
+constexpr const int BtnB_X_Max = 200;
+constexpr const int BtnB_Y_Min = 200;
+constexpr const int BtnC_X_Min = 230;
+constexpr const int BtnC_X_Max = 320;
+constexpr const int BtnC_Y_Min = 200;
+
 #ifdef CONFIG_ENABLE_HEAP_MONITOR
 static esp_timer_handle_t s_monitor_timer;
 #endif // CONFIG_ENABLE_HEAP_MONITOR
@@ -48,6 +59,8 @@ extern "C" void app_main(void) {
   cfg.internal_mic = false;
   M5.begin(cfg);
 
+  static bool state_webrtc = false;
+
   ESP_ERROR_CHECK(esp_event_loop_create_default());
   peer_init();
   oai_wifi();
@@ -60,7 +73,44 @@ extern "C" void app_main(void) {
 
   while(1) {
     M5.update();
-    oai_webrtc_update();
+    oai_webrtc_update(state_webrtc);
+
+    // button event
+    auto touchPoint = M5.Touch.getDetail();
+    static bool wasPressed = false;
+    if (touchPoint.isPressed()) {
+      wasPressed = true;
+    } else {
+      if (wasPressed) {
+        // BtnA
+        if(touchPoint.x > BtnA_X_Min && touchPoint.x < BtnA_X_Max && touchPoint.y > BtnA_Y_Min) {
+          ESP_LOGI(TAG, "BtnA released at: %d, %d", touchPoint.x, touchPoint.y);
+          state_webrtc = !state_webrtc;
+        }
+        // BtnB
+        if(touchPoint.x > BtnB_X_Min && touchPoint.x < BtnB_X_Max && touchPoint.y > BtnB_Y_Min) {
+          ESP_LOGI(TAG, "BtnB released at: %d, %d", touchPoint.x, touchPoint.y);
+        }
+        // BtnC
+        if(touchPoint.x > BtnC_X_Min && touchPoint.x < BtnC_X_Max && touchPoint.y > BtnC_Y_Min) {
+          ESP_LOGI(TAG, "BtnC released at: %d, %d", touchPoint.x, touchPoint.y);
+        }
+        ESP_LOGI(TAG, "Touch Point Released: %d, %d", touchPoint.x, touchPoint.y);
+        wasPressed = false;
+      }
+    }
+
+    // update GUI
+    static bool last_state_webrtc = false;
+    if (state_webrtc != last_state_webrtc) {
+      M5.Display.setTextSize(2);  // 14*2
+      M5.Display.setTextColor(GOLD);
+      M5.Display.fillRect(10, 10, 320, 28, BLACK);
+      M5.Display.drawString(state_webrtc ? "Talk: ON  " : "Talk: OFF ", 10, 10);
+      M5.Display.drawLine(0, 28, 320, 28, GOLD);
+      last_state_webrtc = state_webrtc;
+    }
+
     vTaskDelay(pdMS_TO_TICKS(10));
   }
 }
