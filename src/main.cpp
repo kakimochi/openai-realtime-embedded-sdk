@@ -10,6 +10,7 @@
 #include <esp_heap_caps.h>
 
 #include <M5Unified.h>
+#include "oai_webrtc.h"
 
 constexpr const char* TAG = "main";
 
@@ -53,13 +54,24 @@ extern "C" void app_main(void) {
   
   oai_init_audio_capture();
   oai_init_audio_decoder();
-  
-  oai_webrtc();
+  oai_init_webrtc();
+
+  ESP_LOGI(TAG, "init done.");
+
+  while(1) {
+    M5.update();
+    oai_webrtc_update();
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
 }
 #else
 int main(void) {
   ESP_ERROR_CHECK(esp_event_loop_create_default());
   peer_init();
-  oai_webrtc();
+  oai_webrtc_init();
+  while(1) {
+    oai_webrtc_update();
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
 }
 #endif

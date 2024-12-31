@@ -3,10 +3,12 @@ set(COMMON_SRC "webrtc.cpp" "main.cpp" "http.cpp")
 if(IDF_TARGET STREQUAL linux)
 	idf_component_register(
 		SRCS ${COMMON_SRC}
+		INCLUDE_DIRS "."
 		REQUIRES peer esp-libopus esp_http_client)
 else()
 	idf_component_register(
 		SRCS ${COMMON_SRC} "wifi.cpp" "media.cpp"
+		INCLUDE_DIRS "."
 		REQUIRES driver esp_wifi nvs_flash peer esp_psram esp-libopus esp_http_client esp_timer M5Unified)
 endif()
 

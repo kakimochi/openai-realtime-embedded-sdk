@@ -61,7 +61,7 @@ static void oai_on_icecandidate_task(char *description, void *user_data) {
   peer_connection_set_remote_description(peer_connection, local_buffer);
 }
 
-void oai_webrtc() {
+void oai_init_webrtc() {
   PeerConfiguration peer_connection_config = {
       .ice_servers = {},
       .audio_codec = CODEC_OPUS,
@@ -89,9 +89,8 @@ void oai_webrtc() {
                                              oai_onconnectionstatechange_task);
   peer_connection_onicecandidate(peer_connection, oai_on_icecandidate_task);
   peer_connection_create_offer(peer_connection);
+}
 
-  while (1) {
-    peer_connection_loop(peer_connection);
-    vTaskDelay(pdMS_TO_TICKS(TICK_INTERVAL));
-  }
+void oai_webrtc_update() {
+  peer_connection_loop(peer_connection);
 }
