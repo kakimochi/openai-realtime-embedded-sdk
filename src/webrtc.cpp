@@ -6,6 +6,7 @@
 #include <esp_event.h>
 #include <esp_log.h>
 #include <string.h>
+#include <cJSON.h>
 
 #include "main.h"
 
@@ -28,11 +29,47 @@ void oai_send_audio_task(void *user_data) {
 }
 #endif
 
+void process_dataChannel_msg(const char *msg) {
+  cJSON *json = cJSON_Parse(msg);
+  if (json == NULL) {
+    ESP_LOGE(LOG_TAG, "Failed to parse JSON");
+    return;
+  }
+
+  // type: response.done, "response": {"output": [{"content": [{"transcript": "msg"}]}]}
+  cJSON *type = cJSON_GetObjectItem(json, "type");
+  if (cJSON_IsString(type) && (strcmp(type->valuestring, "response.done") == 0)) {
+    cJSON *response = cJSON_GetObjectItem(json, "response");
+    if (response != NULL) {
+      cJSON *output = cJSON_GetObjectItem(response, "output");
+      if (cJSON_IsArray(output)) {
+        cJSON *item = cJSON_GetArrayItem(output, 0);
+        if (item != NULL) {
+          cJSON *content = cJSON_GetObjectItem(item, "content");
+          if (cJSON_IsArray(content)) {
+            cJSON *content_item = cJSON_GetArrayItem(content, 0);
+            if (content_item != NULL) {
+              cJSON *transcript = cJSON_GetObjectItem(content_item, "transcript");
+              if (cJSON_IsString(transcript)) {
+                ESP_LOGI(LOG_TAG, "Transcript: %s", transcript->valuestring);
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  cJSON_Delete(json);
+}
+
+
 static void oai_ondatachannel_onmessage_task(char *msg, size_t len,
                                              void *userdata, uint16_t sid) {
 #ifdef LOG_DATACHANNEL_MESSAGES
   ESP_LOGI(LOG_TAG, "DataChannel Message: %s", msg);
 #endif
+  process_dataChannel_msg(msg);
 }
 
 static void oai_ondatachannel_onopen_task(void *userdata) {
