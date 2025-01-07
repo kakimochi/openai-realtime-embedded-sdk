@@ -10,3 +10,6 @@
 [submodule "components/esp-protocols"]
 	path = components/esp-protocols
 	url = https://github.com/espressif/esp-protocols.git
+[submodule "components/M5Unified"]
+	path = components/M5Unified
+	url = https://github.com/m5stack/M5Unified

@@ -5,6 +5,7 @@
 #include <peer.h>
 
 #ifndef LINUX_BUILD
+#include <M5Unified.h>
 #include "nvs_flash.h"
 
 extern "C" void app_main(void) {
@@ -15,6 +16,13 @@ extern "C" void app_main(void) {
     ret = nvs_flash_init();
   }
   ESP_ERROR_CHECK(ret);
+
+  auto cfg = M5.config();
+  cfg.internal_spk = false;
+  cfg.internal_mic = false;
+  M5.begin(cfg);
+
+  M5.Lcd.drawString("OpenAI", 0, 0, 2);
 
   ESP_ERROR_CHECK(esp_event_loop_create_default());
   peer_init();
