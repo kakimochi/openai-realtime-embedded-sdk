@@ -9,6 +9,7 @@
 #include <cJSON.h>
 
 #include "main.h"
+#include <M5Unified.h>
 
 #define TICK_INTERVAL 15
 #define GREETING                                                    \
@@ -29,7 +30,19 @@ void oai_send_audio_task(void *user_data) {
 }
 #endif
 
+void draw_signal_rect(uint16_t color, uint16_t bg_color) {
+  const int rect_size = 10;
+  M5.Lcd.fillScreen(bg_color);
+  // M5.Lcd.setFreeFont(&lgfxJapanGothicP_12);
+  // M5.Lcd.setTextColor(color);
+  // M5.Lcd.setTextSize(10);
+  // M5.Lcd.setTextDatum(MC_DATUM);
+  // M5.Lcd.drawString("Connected", M5.Lcd.width() / 2, M5.Lcd.height() / 2);
+  M5.Lcd.fillRect(M5.Lcd.width()/2, M5.Lcd.height()/2, rect_size, rect_size, color);
+}
+
 void process_dataChannel_msg(const char *msg) {
+#if 0
   cJSON *json = cJSON_Parse(msg);
   if (json == NULL) {
     ESP_LOGE(LOG_TAG, "Failed to parse JSON");
@@ -60,7 +73,29 @@ void process_dataChannel_msg(const char *msg) {
     }
   }
 
+  // // type: response.audio_transcript.delta, "delta": "msg"
+  // if (cJSON_IsString(type) && (strcmp(type->valuestring, "response.audio_transcript.delta") == 0)) {
+  //   cJSON *delta = cJSON_GetObjectItem(json, "delta");
+  //   if (cJSON_IsString(delta)) {
+  //     ESP_LOGI(LOG_TAG, "Delta: %s", delta->valuestring);
+  //     // center 1 charactor
+  //     M5.Lcd.fillScreen(GOLD);
+  //     M5.Lcd.setFreeFont(&lgfxJapanGothicP_12);
+  //     M5.Lcd.setTextColor(BLACK);
+  //     M5.Lcd.setTextSize(10);
+  //     M5.Lcd.setTextDatum(MC_DATUM);
+  //     for (size_t i = 0; i < strlen(delta->valuestring); ++i) {
+  //       char singleChar[2] = { delta->valuestring[i], '\0' }; // 一文字を取得
+  //       M5.Lcd.fillScreen(GOLD); // 画面をクリア
+  //       M5.Lcd.drawString(singleChar, M5.Lcd.width() / 2, M5.Lcd.height() / 2);
+  //       vTaskDelay(pdMS_TO_TICKS(300));
+  //     }
+
+  //   }
+  // }
+
   cJSON_Delete(json);
+#endif
 }
 
 
@@ -81,6 +116,7 @@ static void oai_ondatachannel_onopen_task(void *userdata) {
                                      strlen(GREETING));
   } else {
     ESP_LOGE(LOG_TAG, "Failed to create DataChannel");
+    draw_signal_rect(RED, LIGHTGREY);
   }
 }
 
@@ -109,6 +145,7 @@ static void oai_onconnectionstatechange_task(PeerConnectionState state,
     xTaskCreateStaticPinnedToCore(oai_send_audio_task, "audio_publisher", 40000,
                                   NULL, 7, stack_memory, &task_buffer, 0);
 #endif
+    draw_signal_rect(GOLD, BLACK);
 #endif
   }
 }
